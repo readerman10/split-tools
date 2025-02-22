@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dividir Vídeo em 5 Partes</title>
+
+  <!-- Estilos rápidos -->
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 20px;
+    }
+    #progress {
+      width: 100%;
+      height: 20px;
+      background: #ddd;
+      margin-top: 10px;
+      position: relative;
+    }
+    #progress-bar {
+      height: 100%;
+      width: 0%;
+      background: green;
+      transition: width 0.3s;
+    }
+    .part-link {
+      display: block;
+      margin: 8px 0;
+    }
+  </style>
+</head>
+<body>
+  <h2>📽️ Divisor de Vídeo - 5 Partes</h2>
+
+  <!-- Input para selecionar o vídeo -->
+  <input type="file" id="videoInput" accept="video/*">
+  <button id="processButton">Dividir Vídeo</button>
+
+  <!-- Barra de progresso -->
+  <div id="progress">
+    <div id="progress-bar"></div>
+  </div>
+
+  <!-- Status e área de saída -->
+  <div id="status"></div>
+  <div id="output"></div>
+
+  <!-- Carrega o FFmpeg.wasm (UMD) via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
+
+  <!-- Script que usa FFmpeg.wasm no navegador -->
+  <script>
+    // Tudo dentro do DOMContentLoaded para garantir que o HTML foi carregado
+    document.addEventListener('DOMContentLoaded', async () => {
+      // A partir do UMD, a variável global é FFmpeg
+      const { createFFmpeg, fetchFile } = FFmpeg;
+
+      // Cria instância do ffmpeg
+      const ffmpeg = createFFmpeg({ log: true });
+
+      const processButton = document.getElementById('processButton');
+      const videoInput = document.getElementById('videoInput');
+      const statusEl = document.getElementById('status');
+      const progressBar = document.getElementById('progress-bar');
+      const outputDiv = document.getElementById('output');
+
+      // Carregando FFmpeg
+      statusEl.textContent = 'Carregando FFmpeg...';
+      await ffmpeg.load();
+      statusEl.textContent = 'FFmpeg pronto!';
+
+      // Função para dividir o vídeo
+      async function processVideo() {
+        const file = videoInput.files[0];
+        if (!file) {
+          alert('Selecione um vídeo primeiro!');
+          return;
+        }
+
+        // Reseta a área de output e a barra de progresso
+        outputDiv.innerHTML = '';
+        progressBar.style.width = '0%';
+        statusEl.textContent = 'Processando vídeo...';
+
+        // Copia o arquivo para o FS virtual do FFmpeg
+        const inputName = 'input_video.mp4';
+        ffmpeg.FS('writeFile', inputName, await fetchFile(file));
+
+        // Extrai a duração do vídeo
+        const meta = await ffmpeg.run('-i', inputName).catch(() => null);
+        if (!meta) {
+          alert('Não foi possível analisar o vídeo.');
+          return;
+        }
+
+        // Regex para buscar a duração do vídeo
+        const durationMatch = meta.match(/Duration: (\\d+):(\\d+):(\\d+\\.\\d+)/);
+        if (!durationMatch) {
+          alert('Não foi possível obter a duração do vídeo.');
+          return;
+        }
+
+        const hours = parseInt(durationMatch[1]);
+        const minutes = parseInt(durationMatch[2]);
+        const seconds = parseFloat(durationMatch[3]);
+        const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+
+        // Define 5 partes
+        const parts = 5;
+        const partDuration = totalSeconds / parts;
+
+        // Loop para gerar as partes
+        for (let i = 0; i < parts; i++) {
+          const startTime = partDuration * i;
+          const outputName = `parte_${i + 1}.mp4`;
+
+          await ffmpeg.run(
+            '-i', inputName,
+            '-ss', startTime.toString(),
+            '-t', partDuration.toString(),
+            '-c', 'copy',
+            outputName
+          );
+
+          // Lê do FS virtual e gera Blob
+          const data = ffmpeg.FS('readFile', outputName);
+          const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
+          const videoURL = URL.createObjectURL(videoBlob);
+
+          // Cria um link de download
+          const downloadLink = document.createElement('a');
+          downloadLink.href = videoURL;
+          downloadLink.download = outputName;
+          downloadLink.textContent = `📥 Baixar Parte ${i + 1}`;
+          downloadLink.classList.add('part-link');
+          outputDiv.appendChild(downloadLink);
+
+          // Atualiza a barra de progresso
+          progressBar.style.width = `${((i + 1) / parts) * 100}%`;
+        }
+
+        statusEl.textContent = 'Vídeo dividido com sucesso!';
+      }
+
+      // Associa a função ao clique do botão
+      processButton.addEventListener('click', processVideo);
+    });
+  </script>
+</body>
+</html>
